@@ -10,6 +10,8 @@ import json
 class connection:
     __receiveLock = th.Event()
     receiveThread=None
+    __sendLock = th.Event()
+    sendThread = None
     def __init__(self):
         self.socket = socketClass()
         self.server = serverSocketClass()
@@ -19,6 +21,7 @@ class connection:
         self.audioQueue = queue.Queue()
         self.keyboardQueue = queue.Queue()
         self.mouseQueue = queue.Queue()
+        self.sendingQueue = queue.Queue()
         
     def __receive(self):
         while self.__receiveLock.is_set():
@@ -106,7 +109,7 @@ class connection:
                 return False
         return True
     
-    def send(self,type,data):
+    def __send(self,type,data):
         if not isinstance(data,bytes):
             LOGGER.error("Data is not of type bytes")  
             raise Exception("Data is not of type bytes")
@@ -121,14 +124,48 @@ class connection:
         paddedData = data.ljust(len(data) + padLength, b'\x00')
         self.socket.sendData(encodedJSONData)
         self.socket.sendData(paddedData)
+    
+    def __mainSend(self):
+        while self.__sendLock.is_set():
+            try:
+                data = self.sendingQueue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            
+            if not isinstance(data,dict):
+                LOGGER.error("Data is not a dictionary can't send")
+                continue
+            
+            if not (data.get("type") and data.get("data")):
+                LOGGER.error("Type or data not found in dictonary")
+                continue
+            
+            try:
+                self.__send(data.get("type"),data.get("data"))
+            except Exception as error:
+                LOGGER.error("An error occured while sending the data: %s",str(error))
+    
+    def __startSendingThread(self):
+        self.__sendLock.set()
+        self.sendThread=th.Thread(target=self.__mainSend)
+        self.sendThread.start()
+        
+    def __stopSendingThread(self):
+        self.__sendLock.clear()
+        if(self.sendThread):
+            self.sendThread.join(timeout=10.0)
+            if(self.sendThread.is_alive()):
+                return False
+        return True
             
     def connect(self,ip,port):
         LOGGER.info("Connecting to ip:%s and port %d:",ip,port)
         self.socket.connect(ip,port)
         self.socket.startReceiveThread()
         self.__startReceiveThread()
+        self.__startSendingThread()
     
-    def acceptConnectionAndStartReceiveThread(self,socket):
+    def acceptConnectionAndStartThreads(self,socket):
         if not isinstance(socket,socketClass):
             LOGGER.error("Socket variabled is of class %s instead of socketClass",str(type(socket)))
             return
@@ -136,6 +173,7 @@ class connection:
         self.socket=socket 
         self.socket.startReceiveThread()
         self.__startReceiveThread()
+        self.__startSendingThread()
         
     def startServer(self,ip,port,callbackFunction):
         LOGGER.info("Starting server bound to ip:%s and port %d:",ip,port)
@@ -143,7 +181,7 @@ class connection:
         self.server.startWaitingConnectionThread(callbackFunction)
         
     def closeConnection(self):
-        if(self.__stopReceiveThread()):
+        if(self.__stopReceiveThread() and self.__stopSendingThread()):
             socketClosed =  self.socket.closeSocket()
             serverClosed = self.server.closeServer()
             return socketClosed and serverClosed
