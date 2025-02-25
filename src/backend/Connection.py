@@ -96,6 +96,11 @@ class connection:
                 case DataType.MOUSE.value:
                     self.mouseQueue.put(finalData)
             
+            try:
+                self.socket.receiveQueue.task_done()
+            except ValueError:
+                LOGGER.error("Marking more tasks as done than get in socket receive queue")
+            
     def __startReceiveThread(self):
         self.__receiveLock.set()
         self.receiveThread=th.Thread(target=self.__receive)
@@ -144,6 +149,15 @@ class connection:
                 self.__send(data.get("type"),data.get("data"))
             except Exception as error:
                 LOGGER.error("An error occured while sending the data: %s",str(error))
+                
+            try:
+                self.sendingQueue.task_done()
+            except ValueError:
+                LOGGER.error("Marking more tasks as done then get in connection send queue")
+            
+            callback = data.get("callback")
+            if callable(callback):
+                callback()
     
     def __startSendingThread(self):
         self.__sendLock.set()
