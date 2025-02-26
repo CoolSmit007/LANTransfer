@@ -1,11 +1,15 @@
 from backend.Socket import socketClass
 from backend.ServerSocket import serverSocketClass
-from models.DataTypeEnum import DataType
+from models.enums.DataType import DataType
+from models.enums.CommandType import CommandType
 
 import queue
 import threading as th
-from log_init import LOGGER
 import json
+import msgpack
+
+from log_init import LOGGER
+from config import CONFIGS
 
 class connection:
     __receiveLock = th.Event()
@@ -82,7 +86,7 @@ class connection:
                 
             match typeOfData:
                 case DataType.COMMAND.value:
-                    pass
+                    self.__bifurcateCommands(finalData)
                 case DataType.AUDIO.value:
                     self.audioQueue.put(finalData)
                 case DataType.SCREEN.value:
@@ -101,6 +105,16 @@ class connection:
             except ValueError:
                 LOGGER.error("Marking more tasks as done than get in socket receive queue")
             
+    def __bifurcateCommands(self,data):
+        unpackedData: dict = msgpack.unpackb(data)
+        if not unpackedData.get("type"):
+            LOGGER.error("Couldn't find command type in command data")
+            return
+        match unpackedData.get("type"):
+            case CommandType.ACK_FILE.value:
+                # TODO: write code here to unblock file sender
+                return
+        
     def __startReceiveThread(self):
         self.__receiveLock.set()
         self.receiveThread=th.Thread(target=self.__receive)
@@ -123,9 +137,10 @@ class connection:
             LOGGER.error("Type is not an enum of type DataType")  
             raise Exception("Type is not an enum of type DataType")
         
-        padLength = (1024-(len(data)%1024))%1024
+        bufferSize = CONFIGS.socketBufferSize
+        padLength = (bufferSize - (len(data)%bufferSize))%bufferSize
         jsonData = {"type":type.value, "data_length":len(data)+padLength,"padding_length":padLength}
-        encodedJSONData = (json.dumps(jsonData)+'\n').encode().ljust(1024, b'\x00')
+        encodedJSONData = (json.dumps(jsonData)+'\n').encode().ljust(bufferSize, b'\x00')
         paddedData = data.ljust(len(data) + padLength, b'\x00')
         self.socket.sendData(encodedJSONData)
         self.socket.sendData(paddedData)

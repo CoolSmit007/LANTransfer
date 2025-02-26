@@ -1,2 +1,4 @@
 fileConfigs:
   chunkSize: 4096
+
+socketBufferSize: 1024

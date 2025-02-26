@@ -15,7 +15,7 @@ class FileConfigs:
 @dataclass
 class AppConfig(BaseModel):
     fileConfigs: FileConfigs
-
+    socketBufferSize: int
 
 def load_config():
     """Loads configuration from a YAML file and environment variables."""

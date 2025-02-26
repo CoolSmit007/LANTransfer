@@ -4,6 +4,7 @@ import queue
 import threading as th
 
 from log_init import LOGGER
+from config import CONFIGS
 class socketClass:
     __receiveLock = th.Event()
     receiveThread = None
@@ -30,17 +31,18 @@ class socketClass:
         
     def __receiveData(self):
         recieve_data=bytes()
+        bufferSize = CONFIGS.socketBufferSize
         while self.__receiveLock.is_set():
             try:
                 ready,_,_ = select.select([self.socket.fileno()],[],[],1.0)
                 if ready:
-                    recieve_data+=self.socket.recv(1024)
+                    recieve_data+=self.socket.recv(bufferSize)
                     if not recieve_data:
                         self.__receiveLock.clear()
                         continue
-                    if(len(recieve_data)>=1024):
-                        self.receiveQueue.put(recieve_data[:1024])
-                        recieve_data=recieve_data[1024:]
+                    if(len(recieve_data)>=bufferSize):
+                        self.receiveQueue.put(recieve_data[:bufferSize])
+                        recieve_data=recieve_data[bufferSize:]
             except ValueError as error:
                 LOGGER.error("Value error while receiving data: %s",str(error))
             except OSError as error:
